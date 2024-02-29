@@ -1,3 +1,7 @@
+// 중복 import 방지용 코드
+#ifndef HTML_PAGE
+#define HTML_PAGE
+
 /* 
 HTML 소스 코드
 
@@ -52,3 +56,7 @@ class HTMLPage{
       return htmlPage;
     };
 };
+
+
+
+#endif

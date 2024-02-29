@@ -1,4 +1,4 @@
-  //자체 WEB Server 구축용
+//자체 WEB Server 구축용
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
 
@@ -10,7 +10,7 @@ HTMLPage html; //객체 생성
 
 //최대 20개까지 스캔
 //신호 강도 기준
-#define WIFI_MAX_SIZE 15
+#define WIFI_MAX_SIZE 10
 
 //각자의 보드 WIFI 설정
 const char* ap_ssid = "yeonji11111"; //표출되는 이름
@@ -28,17 +28,15 @@ String rssiList[WIFI_MAX_SIZE];
 //인터넷이 가능한 wifi에 들러붙어 기생
 String connectedSSID = "next1";
 String connectedPassword = "next18850";
-int connectedSSIDAddress = 64; // 0~255까지 주소지 설정 가능
+
+int connectedSSIDAddress = 32;
 int connectedPasswordAddress = 128;
 
-
-// 모드 전환하는 버튼
-int operatingMode = 1;  // 1 - AP(Access Point = 스캔하고 있는 상태 , 자체(=기생) 와이파이), 2 - STA(Station Access Point = 스캔한 것들 중에 숙주용으로 찍은 것, 숙주 와이파이)
+//모드전환하는 버튼
+int operatingMode = 1; // 1 - AP, 2 - STA
 int operatingPin = D2;
 int buttonState;
-unsigned long currentMillis = 0; // unsigned = 양수 타입(+), 시간은 -가 없으므로 확실히 하기 위해
-
-
+unsigned long currentMillis = 0;
 
 //wifi 스캔함수
 //찾은 갯수를 반환
@@ -71,7 +69,7 @@ int scanWiFiList()
   //int를 String           String(x)
   //-40 -50 -55 -60 -70
   //일단 전체를 돌고 돌아야함
-  for(int i = 0; i < WIFI_MAX_SIZE && i < n; i++)
+  for(int i = 0; i < WIFI_MAX_SIZE -1 && i < n - 1; i++)
   {
     bool isSwap = false;
     for(int j = 0; j < n - 1; j++)
@@ -101,7 +99,7 @@ bool isValidate(String data)
   && (!data.isEmpty()) //제공되는 함수
   && (data != " ") //공백문자 안됨
   && (data != "")  //비어있어도 안됨
-  && ( data != "0") // 0이여도 안됨
+  && (data != "0")
   ;
 }
 
@@ -117,6 +115,8 @@ void swap(String* a, String* b)
 void handleRoot()
 {
   scanWiFiList(); //하드웨어적으로 스캔결과 보관
+
+  delay(200);
 
   //맨처음 접속시 보여줄 문자열(=HTML코드) 출력
   server.send(200, "text/html", prepareSelectWifiList());
@@ -142,6 +142,7 @@ void handleForm()
 
   EEPROM.put(connectedSSIDAddress, apName);
   EEPROM.put(connectedPasswordAddress, apPw);
+  EEPROM.commit();
 
   server.send(200, "text/html", html.getReturn);
 }
@@ -170,19 +171,20 @@ void setup() {
   // put your setup code here, to run once:
   pinMode(operatingPin, INPUT);
 
+  EEPROM.begin(255);
   Serial.begin(115200); //최소 115200이 요구됨
   Serial.println("Start WIFI");
 
   Serial.println("Start AP");
 
   //보드 자체적으로 WIFI를 구축하겠다는거임
+  WiFi.mode(WIFI_AP); 
   WiFi.softAP(ap_ssid, ap_password);
 
   delay(1000);
 
   //인터넷은 안되지만, 자체적으로 IP 주소를 가지고 있음
   IPAddress myIP = WiFi.softAPIP();
-
   //자체적으로 가지고 있는 IP 주소 확인
   Serial.print("AP IP address: ");
   Serial.println(myIP);
@@ -191,28 +193,30 @@ void setup() {
   //해당 주소에 대한 요청을 처리해줌
   server.on("/", handleRoot);
   server.on("/action_page", handleForm);
-
+  delay(1000);
+ 
   Serial.println("start server");
   server.begin();
-
   delay(1000);
-  // int n = scanWiFiList();
 
-  //스캔 결과를 시리얼로 확인
-  // for(int i = 0; i < n; i++)
-  // {
-  //   String name = wifiList[i];
-  //   String rssi = rssiList[i];
+  char SSID_temp[50];
+  char Password_temp[50];
 
-  //   String scanningResult = name + " : " + rssi;
-  //   Serial.println(scanningResult);
-  // }
+  for(int i = 0; i < 50; i++)
+  {
+    SSID_temp[i] = EEPROM.read(connectedSSIDAddress + i);
+    Password_temp[i] = EEPROM.read(connectedPasswordAddress + i);
+  }
+
+  Serial.println("ROM Load");
+  Serial.println(SSID_temp);
+  Serial.println(Password_temp);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
   currentMillis = millis();
-
+  
   int buttonState = digitalRead(operatingPin);
 
   if(operatingMode == 2 && buttonState)
@@ -232,60 +236,68 @@ void loop() {
     delay(1000);
 
     //ROM에 저장된 값 가져오기
-    String SSID_temp;
-    EEPROM.get(connectedSSIDAddress,SSID_temp);
+    char SSID_temp[50];
+    char Password_temp[50];
 
-    String password_temp;
-    EEPROM.get(connectedPasswordAddress, password_temp);
-
-    if(isValidate(SSID_temp) && isValidate(password_temp))
+    for(int i = 0; i < 50; i++)
     {
-    connectedSSID = SSID_temp;
-    connectedPassword = password_temp;
-
-    Serial.println();
-    Serial.print("Connecting to ");
-    Serial.println(connectedSSID);
-
-    WiFi.mode(WIFI_STA); // 자체 WIFI를 끄고, 숙주한테 들러붙는 모드
-    WiFi.begin(connectedSSID, connectedPassword); // 숙주한테 붙기
-    delay(1000);
-    // 연결될 때까지 기다리기
-    while(WiFi.status() != WL_CONNECTED){
-      delay(500);
-      Serial.print(".");
+      SSID_temp[i] = EEPROM.read(connectedSSIDAddress + i);
+      Password_temp[i] = EEPROM.read(connectedPasswordAddress + i);
     }
-    // 숙주한테 연결하도록 허가 받음
-    Serial.println("wifi connected OK");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    Serial.println("Switching AP >>>> STA");
+    Serial.println("ROM Load");
+    Serial.println("SSID_temp");
+    Serial.println("Password_temp");
+    
 
+    if(isValidate(SSID_temp) && isValidate(Password_temp))
+    {
+      //connectedSSID = SSID_temp;
+      //connectedPassword = Password_temp;
+
+      Serial.println();
+      Serial.print("Connecting to ");
+      Serial.println(connectedSSID);
+
+      WiFi.mode(WIFI_STA); //자체 WIFI를 끄고, 숙주한테 들러붙는 모드
+      WiFi.begin(connectedSSID, connectedPassword); //숙주한테 붙기
+      delay(1000);
+      //연결될 때까지 기다리기
+      while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+      }
+
+      //숙주한테 연결하도록 허가 받음
+      Serial.println("wifi connected OK");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+      Serial.println("Switching AP >>>> STA");
     }
     else
     {
-    Serial.println("wifi setting not yet !!");  
+      Serial.println("wifi setting not yet");
     }
+
+    
   }
 
   switch(operatingMode)
   {
-    // 숙주 찾는 모드
+    //숙주 찾는 모드
     case 1:
-      // server.handleClient();
-      networking(); // 숙주 찾는 함수
+      //server.handleClient();
+      networking(); //숙주 찾는 함수
       break;
 
     case 2:
-      sensing(); // 숙주에 들러붙어 사는 함수
+      sensing(); //숙주에 들러붙어 사는 함수
       break;
   }
+
 }
 
 void networking()
 {
- //보드 자체적으로 WIFI를 구축하겠다는거임
-  // WiFi.softAP(ap_ssid, ap_password);
   server.handleClient();
 }
 
